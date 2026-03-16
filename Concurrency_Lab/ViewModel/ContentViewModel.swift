@@ -1,53 +1,85 @@
 //
-//  ContentViewModel 2.swift
+//  ContentViewModel.swift
 //  Concurrency_Lab
 //
 //  Created by Mateus Martins Pires on 16/03/26.
 //
 
-
 import SwiftUI
-import Observation
 
 @Observable
 @MainActor
 class ContentViewModel {
     var statusMessage = "Pronto para iniciar"
     var isDownloading = false
+    var isFinished = false
     
-    // 3 Cofres independentes (Zero Actor Contention)
+    var downloadedUsers: [User] = []
+    var hasOnCache: Bool = false
+    // Se eles fossem injetados no init, poderiam ser instâncias globais do app (Singleton ou Environment)
+    // Mas para o nosso laboratório, instanciá-los aqui funciona perfeitamente.
     let userCache = DataStore<User>()
     let postCache = DataStore<Post>()
     
     private let fetcher = DataFetcher()
     private var downloadTask: Task<Void, Never>?
     
-    func startPipeline() {
+    func startPipeline(forceAPI: Bool = false) {
         isDownloading = true
+        isFinished = false
+        downloadedUsers = []
         
         downloadTask = Task {
             do {
-                // ETAPA 1: Usuários
-                self.statusMessage = "1/3: Baixando Usuários em lote..."
-                let userIDs = Array(1...5) // Vamos baixar 5 usuários
-                let users = try await fetcher.fetchUsers(ids: userIDs)
-                await userCache.save(users)
+
+                if forceAPI {
+                    await userCache.clear()
+                    await postCache.clear()
+                }
                 
-                // O checkCancellation() aqui garante que não vamos para a etapa 2 
-                // se o usuário já tiver cancelado durante a etapa 1.
+                // 1. LÓGICA CACHE-FIRST PARA USERS
+                let cachedUsers = await userCache.items
+                let hasOnCache = !cachedUsers.isEmpty
+                
+                let userIDs = Array(1...5)
+                
+                if cachedUsers.isEmpty {
+                    self.statusMessage = "1/2: Baixando Usuários da API..."
+                    let fetchedUsers = try await fetcher.fetchUsers(ids: userIDs)
+                    await userCache.save(fetchedUsers)
+                } else {
+                    self.statusMessage = "1/2: Carregando Usuários do Cache..."
+                    print("Carregando cache")
+                    try await Task.sleep(for: .milliseconds(1000))
+                }
+                
                 try Task.checkCancellation()
                 
-                // ETAPA 2: Posts
-                self.statusMessage = "2/3: Baixando Posts dos usuários..."
-                let posts = try await fetcher.fetchPosts(for: userIDs)
-                await postCache.save(posts)
+                // 2. LÓGICA CACHE-FIRST PARA POSTS
+                let cachedPosts = await postCache.items
+                if cachedPosts.isEmpty {
+                    self.statusMessage = "2/2: Baixando Posts da API..."
+                    let fetchedPosts = try await fetcher.fetchPosts(for: userIDs)
+                    await postCache.save(fetchedPosts)
+                } else {
+                    self.statusMessage = "2/2: Carregando Posts do Cache..."
+                    try await Task.sleep(for: .milliseconds(1000))
+                }
                 
-                // (Etapa 3 seria idêntica para Comments)
+                self.statusMessage = hasOnCache ? "Sucesso! Dados carregados do Cache." : "Sucesso! Dados buscados da API."
                 
-                self.statusMessage = "Sucesso! Tudo salvo no Cache."
+                // Finalizamos lendo a fonte da verdade 
+                let finalUsers = await userCache.items
+                
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                    self.downloadedUsers = finalUsers
+                    self.isFinished = true
+                }
                 
             } catch is CancellationError {
-                self.statusMessage = "⚠️ Pipeline cancelado pelo usuário."
+                self.statusMessage = "⚠️ Pipeline cancelado."
+            } catch let error as URLError where error.code == .cancelled {
+                self.statusMessage = "⚠️ Pipeline cancelado."
             } catch {
                 self.statusMessage = "❌ Erro na rede: \(error.localizedDescription)"
             }
@@ -58,5 +90,13 @@ class ContentViewModel {
     
     func cancelPipeline() {
         downloadTask?.cancel()
+    }
+    
+    // Limpa o estado visual para a próxima vez que o Sheet abrir,
+    // MAS mantém os dados salvos nos atores de Cache.
+    func resetVisualState() {
+        self.downloadedUsers.removeAll()
+        self.isFinished = false
+        self.statusMessage = "Pronto para iniciar"
     }
 }
