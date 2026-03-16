@@ -25,6 +25,6 @@ Sou um desenvolvedor iOS com formação pela *Apple Developer Academy* e criador
 
 Gosto de construir produtos que não apenas funcionam, mas que escalam com segurança e entregam valor real ao usuário final.
 
-🔗 [Conecte-se comigo no LinkedIn] (Coloque seu link aqui)
-📱 [Conheça meus apps na App Store] (Coloque seu link aqui)
+🔗 Conecte-se comigo no LinkedIn - https://www.linkedin.com/in/mateusmpiress/
+📱 Conheça meus apps na App Store - "Ecos - Smart Journal" - https://apps.apple.com/us/app/ecos-sua-segunda-mente/id6754569860
 
